@@ -161,8 +161,40 @@ function B({children,onClick,className,style}){return(<button onClick={onClick} 
 function Login({onLogin}){
   const[sel,setSel]=useState(null);const[pin,setPin]=useState("");const[err,setErr]=useState("");
   const[changingPin,setChangingPin]=useState(false);const[newPin,setNewPin]=useState("");
-  function go(){const u=ALL.find(u=>u.id===sel);if(u&&pin===u.pin)onLogin(u);else{setErr("Wrong PIN");setPin("");}}
-  function changePin(){if(newPin.length===4){const u=ALL.find(u=>u.id===sel);if(u){u.pin=newPin;setChangingPin(false);setNewPin("");setErr("PIN changed!");}}}
+  const[isFirstTime,setIsFirstTime]=useState(false);const[confirmPin,setConfirmPin]=useState("");
+  
+  function go(){
+    const u=ALL.find(u=>u.id===sel);
+    if(!u)return;
+    // Check if user has a custom PIN saved
+    const savedPins=JSON.parse(localStorage.getItem("tf_pins")||"{}");
+    const userPin=savedPins[u.id]||u.pin;
+    // First time: no custom PIN set yet, and default PIN entered
+    if(!savedPins[u.id]&&pin===u.pin){
+      setIsFirstTime(true);return;
+    }
+    if(pin===userPin)onLogin(u);
+    else{setErr("Wrong PIN");setPin("");}
+  }
+  
+  function setupPin(){
+    if(newPin.length!==4){setErr("PIN must be 4 digits");return;}
+    if(newPin!==confirmPin){setErr("PINs don't match");setConfirmPin("");return;}
+    const savedPins=JSON.parse(localStorage.getItem("tf_pins")||"{}");
+    savedPins[sel]=newPin;
+    localStorage.setItem("tf_pins",JSON.stringify(savedPins));
+    setIsFirstTime(false);setNewPin("");setConfirmPin("");
+    const u=ALL.find(u=>u.id===sel);
+    if(u)onLogin(u);
+  }
+  
+  function changePin(){
+    if(newPin.length!==4){setErr("PIN must be 4 digits");return;}
+    const savedPins=JSON.parse(localStorage.getItem("tf_pins")||"{}");
+    savedPins[sel]=newPin;
+    localStorage.setItem("tf_pins",JSON.stringify(savedPins));
+    setChangingPin(false);setNewPin("");setErr("PIN changed!");
+  }
   return(
     <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{background:"linear-gradient(135deg,#0A1628,#0D2137 50%,#0a0a1a)"}}>
       <style>{CSS}</style>
@@ -199,7 +231,7 @@ function Login({onLogin}){
             </div>
           </>)}
         </div>)}
-        <p className="text-white/15 text-xs text-center mt-4">Warriors 1111-6666 | Mods 7777-8888</p>
+        <p className="text-white/15 text-xs text-center mt-4">First time? Use default PIN (1111-8888) to set your own</p>
       </div>
     </div>
   );
@@ -440,7 +472,7 @@ function AdminPanel({user,data,setData}){
     <div className="p-4 pb-24 max-w-lg mx-auto">
       <h2 className="text-lg font-black text-white mb-0.5">⚙️ ADMIN</h2><p className="text-xs text-white/30 mb-4">{user.alias}</p>
       <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-3"><p className="text-white/40 text-xs mb-2">DATA EXPORT</p><p className="text-white/20 text-[10px] mb-2">JSON = full backup (all data, flags, proofs, comments). CSV = daily logs only.</p><div className="flex gap-2"><B onClick={exportAll} className="flex-1 p-2 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-bold">Export JSON</B><B onClick={exportCSV} className="flex-1 p-2 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-bold">Export CSV</B></div></div>
-      <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-3"><p className="text-white/40 text-xs mb-2">MEMBERS</p>{WARRIORS.map(m=>(<p key={m.id} className="text-white text-xs mb-1">{m.alias} <span className="text-white/30">({m.gender}) {m.role==="admin"?"⚙️":""}</span></p>))}<p className="text-white/40 text-xs mt-2 mb-1">Mods:</p>{MODS.map(m=>(<p key={m.id} className="text-white text-xs mb-1">{m.alias} <span className="text-white/30">({m.gender})</span></p>))}</div>
+      <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-3"><p className="text-white/40 text-xs mb-2">MEMBERS & PINs</p>{WARRIORS.map(m=>{const savedPins=JSON.parse(localStorage.getItem("tf_pins")||"{}");const currentPin=savedPins[m.id]||m.pin;return(<p key={m.id} className="text-white text-xs mb-1">{m.alias} <span className="text-white/30">({m.gender}) PIN: {currentPin} {m.role==="admin"?"⚙️":""}</span></p>);})}<p className="text-white/40 text-xs mt-2 mb-1">Mods:</p>{MODS.map(m=>{const savedPins=JSON.parse(localStorage.getItem("tf_pins")||"{}");const currentPin=savedPins[m.id]||m.pin;return(<p key={m.id} className="text-white text-xs mb-1">{m.alias} <span className="text-white/30">({m.gender}) PIN: {currentPin}</span></p>);})}</div>
       <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-3"><p className="text-white/40 text-xs mb-2">STORAGE</p><p className="text-white text-xs">{(JSON.stringify(data).length/1024).toFixed(1)} KB</p><B onClick={()=>{if(confirm("Clear ALL data?"))setData({});}} className="mt-2 px-3 py-1 rounded bg-red-500/20 text-red-400 text-xs font-bold">Reset All</B></div>
     </div>
   );
