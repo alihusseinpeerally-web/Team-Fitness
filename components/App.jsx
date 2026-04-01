@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { supabase } from "../lib/supabase";
 
 const START = new Date(2026, 3, 1);
 const END = new Date(2027, 2, 30);
@@ -60,27 +61,281 @@ function gWE(ws){const we=new Date(ws);we.setDate(we.getDate()+6);return we;}
 function tog(c,v){return c===v?"":v;}
 
 const SK="tf4_data";
+// Local cache - loads from Supabase on login, falls back to localStorage
 function ld(){try{return JSON.parse(localStorage.getItem(SK))||{};}catch{return{};}}
 function sv(d){localStorage.setItem(SK,JSON.stringify(d));}
+
+// Supabase sync functions
+async function loadFromSupabase() {
+  const data = {};
+  try {
+    // Fetch all data in parallel
+    const [usersRes, logsRes, targetsRes, exLogsRes, weightsRes, flagsRes, commentsRes, cheatsRes, pendingRes] = await Promise.all([
+      supabase.from("users").select("*"),
+      supabase.from("daily_logs").select("*"),
+      supabase.from("exercise_targets").select("*"),
+      supabase.from("exercise_logs").select("*"),
+      supabase.from("weights").select("*"),
+      supabase.from("flags").select("*"),
+      supabase.from("comments").select("*"),
+      supabase.from("cheat_days").select("*"),
+      supabase.from("pending_exercises").select("*"),
+    ]);
+
+    // Build user ID map from Supabase UUIDs to our local alias-based IDs
+    const userMap = {};
+    const userMapReverse = {};
+    (usersRes.data || []).forEach(u => {
+      const localId = u.alias.toLowerCase().replace(/[^a-z0-9]/g, "");
+      userMap[u.id] = localId;
+      userMapReverse[localId] = u.id;
+      // Store PIN from DB
+      if (!data._dbPins) data._dbPins = {};
+      data._dbPins[localId] = u.pin;
+    });
+    data._userMap = userMap;
+    data._userMapReverse = userMapReverse;
+
+    // Process daily logs
+    (logsRes.data || []).forEach(log => {
+      const uid = userMap[log.user_id];
+      if (!uid) return;
+      if (!data[uid]) data[uid] = { daily: {}, exercise: {}, weight: {}, exerciseTargets: {}, cheatDays: {}, strengthProofs: {} };
+      data[uid].daily[log.log_date] = {
+        workout: log.workout || "",
+        calTarget: log.cal_target || "",
+        ateClean: log.ate_clean || "",
+        ateOnTime: log.ate_on_time || "",
+        sleep: log.sleep || "",
+        steps: log.steps || "",
+        water: log.water || "",
+        protein: log.protein || "",
+        carbs: log.carbs || "",
+        fats: log.fats || "",
+        calories: log.calories || "",
+        photo: log.photo || null,
+        comment: log.comment || "",
+        _dbId: log.id,
+      };
+    });
+
+    // Process exercise targets
+    (targetsRes.data || []).forEach(t => {
+      const uid = userMap[t.user_id];
+      if (!uid) return;
+      if (!data[uid]) data[uid] = { daily: {}, exercise: {}, weight: {}, exerciseTargets: {}, cheatDays: {}, strengthProofs: {} };
+      if (!data[uid].exerciseTargets) data[uid].exerciseTargets = {};
+      data[uid].exerciseTargets[t.exercise_name] = {
+        starting: t.starting_value,
+        weekly: t.weekly_target,
+        monthly: t.monthly_target,
+      };
+    });
+
+    // Process exercise logs
+    (exLogsRes.data || []).forEach(el => {
+      const uid = userMap[el.user_id];
+      if (!uid) return;
+      if (!data[uid]) data[uid] = { daily: {}, exercise: {}, weight: {}, exerciseTargets: {}, cheatDays: {}, strengthProofs: {} };
+      if (!data[uid].exercise) data[uid].exercise = {};
+      if (!data[uid].exercise[el.week_num]) data[uid].exercise[el.week_num] = {};
+      data[uid].exercise[el.week_num][el.exercise_name] = el.best_value;
+      // Store proof
+      if (el.proof_photo) {
+        if (!data[uid].strengthProofs) data[uid].strengthProofs = {};
+        data[uid].strengthProofs[el.week_num + "_" + el.exercise_name] = el.proof_photo;
+      }
+      // Store proof status
+      if (!data._proofApprovals) data._proofApprovals = {};
+      data._proofApprovals[uid + "_" + el.week_num + "_" + el.exercise_name] = el.proof_status || "pending";
+    });
+
+    // Process weights
+    (weightsRes.data || []).forEach(w => {
+      const uid = userMap[w.user_id];
+      if (!uid) return;
+      if (!data[uid]) data[uid] = { daily: {}, exercise: {}, weight: {}, exerciseTargets: {}, cheatDays: {}, strengthProofs: {} };
+      if (!data[uid].weight) data[uid].weight = {};
+      data[uid].weight[w.week_num] = w.weight_kg;
+    });
+
+    // Process flags
+    data._flags = {};
+    (flagsRes.data || []).forEach(f => {
+      const uid = userMap[f.user_id];
+      const modUid = userMap[f.mod_id];
+      if (!uid) return;
+      const k = uid + "_" + f.log_date;
+      if (!data._flags[k]) data._flags[k] = [];
+      data._flags[k].push({
+        modId: modUid,
+        msg: f.message,
+        severity: f.severity,
+        deduction: f.deduction,
+        ts: new Date(f.created_at).getTime(),
+        response: f.response || null,
+        resolved: f.resolved,
+        genuine: f.genuine,
+        _dbId: f.id,
+      });
+    });
+
+    // Process comments
+    data._comments = {};
+    (commentsRes.data || []).forEach(c => {
+      const uid = userMap[c.user_id];
+      const authorUid = userMap[c.author_id];
+      if (!uid) return;
+      const k = uid + "_" + c.log_date;
+      if (!data._comments[k]) data._comments[k] = [];
+      data._comments[k].push({ authorId: authorUid, msg: c.message, ts: new Date(c.created_at).getTime() });
+    });
+
+    // Process cheat days
+    (cheatsRes.data || []).forEach(cd => {
+      const uid = userMap[cd.user_id];
+      if (!uid) return;
+      if (!data[uid]) data[uid] = { daily: {}, exercise: {}, weight: {}, exerciseTargets: {}, cheatDays: {}, strengthProofs: {} };
+      if (!data[uid].cheatDays) data[uid].cheatDays = {};
+      data[uid].cheatDays[cd.week_num] = cd.day_index;
+    });
+
+    // Process pending exercises
+    data._pendingExercises = (pendingRes.data || []).map(pe => ({
+      uid: userMap[pe.user_id],
+      name: pe.exercise_name,
+      unit: pe.unit,
+      status: pe.status,
+      ts: new Date(pe.created_at).getTime(),
+      _dbId: pe.id,
+    }));
+
+  } catch (err) {
+    console.error("Failed to load from Supabase:", err);
+  }
+  return data;
+}
+
+// Write helpers - write to Supabase in background
+async function syncDailyLog(userMapReverse, uid, date, entry) {
+  const dbUid = userMapReverse?.[uid];
+  if (!dbUid) return;
+  try {
+    await supabase.from("daily_logs").upsert({
+      user_id: dbUid, log_date: date,
+      workout: entry.workout || "", cal_target: entry.calTarget || "",
+      ate_clean: entry.ateClean || "", ate_on_time: entry.ateOnTime || "",
+      sleep: entry.sleep || 0, steps: entry.steps || 0, water: entry.water || 0,
+      protein: entry.protein || 0, carbs: entry.carbs || 0, fats: entry.fats || 0,
+      calories: entry.calories || 0, photo: entry.photo || "", comment: entry.comment || "",
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id,log_date" });
+  } catch (e) { console.error("Sync daily log error:", e); }
+}
+
+async function syncExerciseTarget(userMapReverse, uid, exName, targets) {
+  const dbUid = userMapReverse?.[uid];
+  if (!dbUid) return;
+  try {
+    await supabase.from("exercise_targets").upsert({
+      user_id: dbUid, exercise_name: exName,
+      starting_value: targets.starting || 0, weekly_target: targets.weekly || 0,
+      monthly_target: targets.monthly || 0, updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id,exercise_name" });
+  } catch (e) { console.error("Sync target error:", e); }
+}
+
+async function syncExerciseLog(userMapReverse, uid, weekNum, exName, bestValue, proofPhoto) {
+  const dbUid = userMapReverse?.[uid];
+  if (!dbUid) return;
+  try {
+    const payload = { user_id: dbUid, week_num: weekNum, exercise_name: exName, best_value: bestValue || 0 };
+    if (proofPhoto !== undefined) payload.proof_photo = proofPhoto || "";
+    await supabase.from("exercise_logs").upsert(payload, { onConflict: "user_id,week_num,exercise_name" });
+  } catch (e) { console.error("Sync exercise log error:", e); }
+}
+
+async function syncWeight(userMapReverse, uid, weekNum, kg) {
+  const dbUid = userMapReverse?.[uid];
+  if (!dbUid) return;
+  try {
+    await supabase.from("weights").upsert({ user_id: dbUid, week_num: weekNum, weight_kg: kg }, { onConflict: "user_id,week_num" });
+  } catch (e) { console.error("Sync weight error:", e); }
+}
+
+async function syncCheatDay(userMapReverse, uid, weekNum, dayIndex) {
+  const dbUid = userMapReverse?.[uid];
+  if (!dbUid) return;
+  try {
+    if (dayIndex === null) {
+      await supabase.from("cheat_days").delete().eq("user_id", dbUid).eq("week_num", weekNum);
+    } else {
+      await supabase.from("cheat_days").upsert({ user_id: dbUid, week_num: weekNum, day_index: dayIndex }, { onConflict: "user_id,week_num" });
+    }
+  } catch (e) { console.error("Sync cheat error:", e); }
+}
+
+async function syncFlag(userMapReverse, uid, date, modUid, msg, sev, ded) {
+  const dbUid = userMapReverse?.[uid];
+  const dbModId = userMapReverse?.[modUid];
+  if (!dbUid || !dbModId) return;
+  try {
+    await supabase.from("flags").insert({ user_id: dbUid, log_date: date, mod_id: dbModId, message: msg, severity: sev, deduction: ded });
+  } catch (e) { console.error("Sync flag error:", e); }
+}
+
+async function syncFlagResponse(flagDbId, response) {
+  if (!flagDbId) return;
+  try { await supabase.from("flags").update({ response }).eq("id", flagDbId); } catch (e) { console.error(e); }
+}
+
+async function syncFlagResolve(flagDbId, genuine) {
+  if (!flagDbId) return;
+  try { await supabase.from("flags").update({ resolved: true, genuine }).eq("id", flagDbId); } catch (e) { console.error(e); }
+}
+
+async function syncComment(userMapReverse, uid, date, authorUid, msg) {
+  const dbUid = userMapReverse?.[uid];
+  const dbAuthorId = userMapReverse?.[authorUid];
+  if (!dbUid || !dbAuthorId) return;
+  try { await supabase.from("comments").insert({ user_id: dbUid, log_date: date, author_id: dbAuthorId, message: msg }); } catch (e) { console.error(e); }
+}
+
+async function syncPendingExercise(userMapReverse, uid, name, unit) {
+  const dbUid = userMapReverse?.[uid];
+  if (!dbUid) return;
+  try { await supabase.from("pending_exercises").insert({ user_id: dbUid, exercise_name: name, unit }); } catch (e) { console.error(e); }
+}
+
+async function syncApproveExercise(dbId, approved) {
+  if (!dbId) return;
+  try { await supabase.from("pending_exercises").update({ status: approved ? "approved" : "rejected" }).eq("id", dbId); } catch (e) { console.error(e); }
+}
+
+async function syncPin(userMapReverse, uid, newPin) {
+  const dbUid = userMapReverse?.[uid];
+  if (!dbUid) return;
+  try { await supabase.from("users").update({ pin: newPin }).eq("id", dbUid); } catch (e) { console.error(e); }
+}
 function ini(d,u){if(!d[u])d[u]={daily:{},exercise:{},weight:{},exerciseTargets:{},cheatDays:{},strengthProofs:{}};return d;}
 function gE(d,u,k){return d?.[u]?.daily?.[k]||null;}
-function sE(d,u,k,e){ini(d,u);d[u].daily[k]=e;return{...d};}
+function sE(d,u,k,e){ini(d,u);d[u].daily[k]=e;syncDailyLog(d._userMapReverse,u,k,e);return{...d};}
 function gEx(d,u,w){return d?.[u]?.exercise?.[w]||{};}
-function sEx(d,u,w,e){ini(d,u);if(!d[u].exercise)d[u].exercise={};d[u].exercise[w]=e;return{...d};}
+function sEx(d,u,w,e){ini(d,u);if(!d[u].exercise)d[u].exercise={};d[u].exercise[w]=e;Object.entries(e).forEach(([ex,val])=>{if(val!=="")syncExerciseLog(d._userMapReverse,u,w,ex,val);});return{...d};}
 function gWt(d,u,w){return d?.[u]?.weight?.[w]||null;}
-function sWt(d,u,w,k){ini(d,u);if(!d[u].weight)d[u].weight={};d[u].weight[w]=k;return{...d};}
+function sWt(d,u,w,k){ini(d,u);if(!d[u].weight)d[u].weight={};d[u].weight[w]=k;syncWeight(d._userMapReverse,u,w,k);return{...d};}
 function gT(d,u){return d?.[u]?.exerciseTargets||{};}
-function sT(d,u,t){ini(d,u);d[u].exerciseTargets=t;return{...d};}
+function sT(d,u,t){ini(d,u);d[u].exerciseTargets=t;Object.entries(t).forEach(([ex,val])=>{syncExerciseTarget(d._userMapReverse,u,ex,val);});return{...d};}
 function gCD(d,u,w){return d?.[u]?.cheatDays?.[w]??null;}
-function sCD(d,u,w,i){ini(d,u);if(!d[u].cheatDays)d[u].cheatDays={};if(i===null)delete d[u].cheatDays[w];else d[u].cheatDays[w]=i;return{...d};}
+function sCD(d,u,w,i){ini(d,u);if(!d[u].cheatDays)d[u].cheatDays={};if(i===null)delete d[u].cheatDays[w];else d[u].cheatDays[w]=i;syncCheatDay(d._userMapReverse,u,w,i);return{...d};}
 function gFl(d){return d?._flags||{};}
-function aFl(d,u,k,m,msg,sev,ded){if(!d._flags)d._flags={};const key=u+"_"+k;if(!d._flags[key])d._flags[key]=[];d._flags[key].push({modId:m,msg,severity:sev||"medium",deduction:ded||0.4,ts:Date.now(),response:null,resolved:false,genuine:null});return{...d};}
+function aFl(d,u,k,m,msg,sev,ded){if(!d._flags)d._flags={};const key=u+"_"+k;if(!d._flags[key])d._flags[key]=[];d._flags[key].push({modId:m,msg,severity:sev||"medium",deduction:ded||0.4,ts:Date.now(),response:null,resolved:false,genuine:null});syncFlag(d._userMapReverse,u,k,m,msg,sev||"medium",ded||0.4);return{...d};}
 function rFl(d,u,k,i,r){const key=u+"_"+k;if(d._flags?.[key]?.[i])d._flags[key][i].response=r;return{...d};}
 function resFl(d,u,k,i,g){const key=u+"_"+k;if(d._flags?.[key]?.[i]){d._flags[key][i].resolved=true;d._flags[key][i].genuine=g;}return{...d};}
 function gCom(d,u,k){return d?._comments?.[u+"_"+k]||[];}
-function aCom(d,u,k,a,m){if(!d._comments)d._comments={};const key=u+"_"+k;if(!d._comments[key])d._comments[key]=[];d._comments[key].push({authorId:a,msg:m,ts:Date.now()});return{...d};}
+function aCom(d,u,k,a,m){if(!d._comments)d._comments={};const key=u+"_"+k;if(!d._comments[key])d._comments[key]=[];d._comments[key].push({authorId:a,msg:m,ts:Date.now()});syncComment(d._userMapReverse,u,k,a,m);return{...d};}
 function gPE(d){return d?._pendingExercises||[];}
-function aPE(d,u,n,un){if(!d._pendingExercises)d._pendingExercises=[];d._pendingExercises.push({uid:u,name:n,unit:un,status:"pending",ts:Date.now()});return{...d};}
+function aPE(d,u,n,un){if(!d._pendingExercises)d._pendingExercises=[];d._pendingExercises.push({uid:u,name:n,unit:un,status:"pending",ts:Date.now()});syncPendingExercise(d._userMapReverse,u,n,un);return{...d};}
 function appPE(d,i,ok){if(d._pendingExercises?.[i])d._pendingExercises[i].status=ok?"approved":"rejected";return{...d};}
 function gCE(d,u){return(d?._pendingExercises||[]).filter(e=>e.uid===u&&e.status==="approved").map(e=>e.name);}
 function gSP(d,u,w,e){return d?.[u]?.strengthProofs?.[w+"_"+e]||null;}
@@ -166,11 +421,13 @@ function Login({onLogin}){
   function go(){
     const u=ALL.find(u=>u.id===sel);
     if(!u)return;
-    // Check if user has a custom PIN saved
+    // Check PINs: Supabase DB > localStorage > default
+    const cachedData=ld();
+    const dbPin=cachedData?._dbPins?.[u.id];
     const savedPins=JSON.parse(localStorage.getItem("tf_pins")||"{}");
-    const userPin=savedPins[u.id]||u.pin;
-    // First time: no custom PIN set yet, and default PIN entered
-    if(!savedPins[u.id]&&pin===u.pin){
+    const userPin=dbPin||savedPins[u.id]||u.pin;
+    // First time: no custom PIN set (still default)
+    if(userPin===u.pin&&pin===u.pin){
       setIsFirstTime(true);return;
     }
     if(pin===userPin)onLogin(u);
@@ -183,6 +440,9 @@ function Login({onLogin}){
     const savedPins=JSON.parse(localStorage.getItem("tf_pins")||"{}");
     savedPins[sel]=newPin;
     localStorage.setItem("tf_pins",JSON.stringify(savedPins));
+    // Sync to Supabase
+    const cachedData=ld();
+    syncPin(cachedData._userMapReverse,sel,newPin);
     setIsFirstTime(false);setNewPin("");setConfirmPin("");
     const u=ALL.find(u=>u.id===sel);
     if(u)onLogin(u);
@@ -193,6 +453,8 @@ function Login({onLogin}){
     const savedPins=JSON.parse(localStorage.getItem("tf_pins")||"{}");
     savedPins[sel]=newPin;
     localStorage.setItem("tf_pins",JSON.stringify(savedPins));
+    const cachedData=ld();
+    syncPin(cachedData._userMapReverse,sel,newPin);
     setChangingPin(false);setNewPin("");setErr("PIN changed!");
   }
   return(
@@ -540,8 +802,35 @@ const TABS=[{id:"board",l:"Board",i:"🏆"},{id:"log",l:"Log",i:"+"},{id:"streng
 
 export default function App(){
   const[user,setUser]=useState(null);const[data,setDS]=useState(ld());const[tab,setTab]=useState("board");
+  const[loading,setLoading]=useState(true);
+  const refreshRef=useRef(null);
   const setData=useCallback(nd=>{setDS(nd);sv(nd);},[]);
-  useEffect(()=>{const s=localStorage.getItem("tf4_user");if(s){const m=ALL.find(u=>u.id===s);if(m)setUser(m);}},[]);
+
+  // Load data from Supabase on mount
+  useEffect(()=>{
+    async function init(){
+      try{
+        const sbData=await loadFromSupabase();
+        if(Object.keys(sbData).length>2){setDS(sbData);sv(sbData);}
+      }catch(e){console.error(e);}
+      setLoading(false);
+    }
+    init();
+    const s=localStorage.getItem("tf4_user");if(s){const m=ALL.find(u=>u.id===s);if(m)setUser(m);}
+  },[]);
+
+  // Refresh from Supabase every 30 seconds to pick up other users changes
+  useEffect(()=>{
+    if(!user)return;
+    refreshRef.current=setInterval(async()=>{
+      try{
+        const sbData=await loadFromSupabase();
+        if(Object.keys(sbData).length>2){setDS(sbData);sv(sbData);}
+      }catch(e){}
+    },30000);
+    return()=>clearInterval(refreshRef.current);
+  },[user]);
+  if(loading)return(<div className="min-h-screen flex items-center justify-center" style={{background:"linear-gradient(135deg,#0A1628,#0D2137)"}}><div className="text-center"><div className="text-5xl mb-4" style={{animation:"pulse 1.5s infinite"}}>💪</div><p className="text-white/60 text-sm">Loading Team Fitness...</p></div></div>);
   if(!user)return(<Login onLogin={m=>{setUser(m);localStorage.setItem("tf4_user",m.id);}}/>);
   const isMod=user.role==="moderator",isAdm=user.role==="admin";
   const tabs=isAdm?[...TABS,{id:"admin",l:"Admin",i:"⚙️"}]:TABS;
