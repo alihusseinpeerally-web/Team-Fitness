@@ -369,12 +369,12 @@ function calcP(entry,d,uid,data){
   const wn=gWN(d),cd=gCD(data,uid,wn),diw=dB(START,d)%7;
   const isC=cd!==null&&cd===diw;
   // Max 4pts always, unless user explicitly chose Rest (then 3)
-  const isRest=entry&&entry.workout==="R";
+  const isRest=entry&&(entry.workout==="R"||entry.workout==="N");
   const mx=isRest?3:4;
   if(!entry&&!isC)return{pts:0,mx:4,isCheat:false};
   if(!entry&&isC)return{pts:1,mx:4,isCheat:true};
   let pts=0;
-  if(entry.workout&&entry.workout!=="R")pts+=1;
+  if(entry.workout&&entry.workout!=="R"&&entry.workout!=="N")pts+=1;
   if(isC){pts+=1;}else{if(entry.calTarget==="Y")pts+=.33;if(entry.ateClean==="Y")pts+=.33;if(entry.ateOnTime==="Y")pts+=.34;}
   if(entry.sleep>0)pts+=Math.min(entry.sleep/7,1);
   if(entry.steps>0)pts+=Math.min(entry.steps/10000,1);
@@ -391,7 +391,7 @@ function calcWk(data,uid,wi,upTo){
   const ws=new Date(START);ws.setDate(ws.getDate()+wi*7);
   const we=gWE(ws),ed=upTo?new Date(Math.min(we.getTime(),upTo.getTime())):we;
   let tp=0,tm=0,woDone=0;const target=4;
-  for(let i=0;i<7;i++){const d=new Date(ws);d.setDate(d.getDate()+i);if(d>ed||d>END||d<START)continue;const e=gE(data,uid,toK(d));const r=calcP(e,d,uid,data);tp+=r.pts;tm+=r.mx;if(e&&e.workout&&e.workout!=="R"&&e.workout!=="")woDone++;}
+  for(let i=0;i<7;i++){const d=new Date(ws);d.setDate(d.getDate()+i);if(d>ed||d>END||d<START)continue;const e=gE(data,uid,toK(d));const r=calcP(e,d,uid,data);tp+=r.pts;tm+=r.mx;if(e&&e.workout&&e.workout!=="R"&&e.workout!=="N"&&e.workout!=="")woDone++;}
   let cb=0;if(woDone>=target)cb=3;else if(woDone>=target-1)cb=2;else if(woDone>=target-2)cb=1;
   const member=WARRIORS.find(m=>m.id===uid);
   const allEx=[...(member?.gender==="F"?GEX:BEX),...gCE(data,uid)];
