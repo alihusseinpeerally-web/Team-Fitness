@@ -51,7 +51,7 @@ const ACHIEVEMENTS = [
 ];
 
 function dB(a,b){return Math.round((b-a)/864e5);}
-function toK(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function toK(d){return d.toISOString().split("T")[0];}
 const DF=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 function fm(d){return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();}
 function gWI(d){return Math.floor(dB(START,d)/7);}
@@ -744,7 +744,7 @@ function StatsTab({user,data,setData}){
 }
 
 function ModView({user,data,setData}){
-  const today=new Date();today.setHours(0,0,0,0);const[selW,setSelW]=useState(null);const[selD,setSelD]=useState(toK(today));
+  const today=new Date();today.setHours(0,0,0,0);const localDate=today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,"0")+"-"+String(today.getDate()).padStart(2,"0");const[selW,setSelW]=useState(null);const[selD,setSelD]=useState(localDate);
   const[flagMsg,setFlagMsg]=useState("");const[comMsg,setComMsg]=useState("");const[flagSev,setFlagSev]=useState("medium");const[flagDed,setFlagDed]=useState(0.4);
   const[modTab,setModTab]=useState("overview");const[flagPop,setFlagPop]=useState(null);
   const pending=gPE(data),pendC=pending.filter(p=>p.status==="pending").length;
