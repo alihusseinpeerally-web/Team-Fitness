@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "../lib/supabase";
+// Supabase import - works in Next.js, gracefully skipped in artifact
+let supabase;
+try { supabase = require("../lib/supabase").supabase; } catch(e) { supabase = null; }
 
 const START = new Date(2026, 3, 1);
 const END = new Date(2027, 2, 30);
@@ -65,9 +67,13 @@ const SK="tf4_data";
 function ld(){try{return JSON.parse(localStorage.getItem(SK))||{};}catch{return{};}}
 function sv(d){localStorage.setItem(SK,JSON.stringify(d));}
 
+
+// Guard: if supabase not available, sync functions are no-ops
+const _sb = () => !!supabase;
 // Supabase sync functions
 async function loadFromSupabase() {
   const data = {};
+  if (!supabase) return data;
   try {
     // Fetch all data in parallel
     const [usersRes, logsRes, targetsRes, exLogsRes, weightsRes, flagsRes, commentsRes, cheatsRes, pendingRes] = await Promise.all([
@@ -218,6 +224,7 @@ async function loadFromSupabase() {
 
 // Write helpers - write to Supabase in background
 async function syncDailyLog(userMapReverse, uid, date, entry) {
+  if(!_sb())return;
   const dbUid = userMapReverse?.[uid];
   if (!dbUid) return;
   try {
@@ -234,6 +241,7 @@ async function syncDailyLog(userMapReverse, uid, date, entry) {
 }
 
 async function syncExerciseTarget(userMapReverse, uid, exName, targets) {
+  if(!_sb())return;
   const dbUid = userMapReverse?.[uid];
   if (!dbUid) return;
   try {
@@ -246,6 +254,7 @@ async function syncExerciseTarget(userMapReverse, uid, exName, targets) {
 }
 
 async function syncExerciseLog(userMapReverse, uid, weekNum, exName, bestValue, proofPhoto) {
+  if(!_sb())return;
   const dbUid = userMapReverse?.[uid];
   if (!dbUid) return;
   try {
@@ -256,6 +265,7 @@ async function syncExerciseLog(userMapReverse, uid, weekNum, exName, bestValue, 
 }
 
 async function syncWeight(userMapReverse, uid, weekNum, kg) {
+  if(!_sb())return;
   const dbUid = userMapReverse?.[uid];
   if (!dbUid) return;
   try {
@@ -264,6 +274,7 @@ async function syncWeight(userMapReverse, uid, weekNum, kg) {
 }
 
 async function syncCheatDay(userMapReverse, uid, weekNum, dayIndex) {
+  if(!_sb())return;
   const dbUid = userMapReverse?.[uid];
   if (!dbUid) return;
   try {
@@ -276,6 +287,7 @@ async function syncCheatDay(userMapReverse, uid, weekNum, dayIndex) {
 }
 
 async function syncFlag(userMapReverse, uid, date, modUid, msg, sev, ded) {
+  if(!_sb())return;
   const dbUid = userMapReverse?.[uid];
   const dbModId = userMapReverse?.[modUid];
   if (!dbUid || !dbModId) return;
@@ -285,16 +297,17 @@ async function syncFlag(userMapReverse, uid, date, modUid, msg, sev, ded) {
 }
 
 async function syncFlagResponse(flagDbId, response) {
-  if (!flagDbId) return;
+  if(!_sb()||!flagDbId) return;
   try { await supabase.from("flags").update({ response }).eq("id", flagDbId); } catch (e) { console.error(e); }
 }
 
 async function syncFlagResolve(flagDbId, genuine) {
-  if (!flagDbId) return;
+  if(!_sb()||!flagDbId) return;
   try { await supabase.from("flags").update({ resolved: true, genuine }).eq("id", flagDbId); } catch (e) { console.error(e); }
 }
 
 async function syncComment(userMapReverse, uid, date, authorUid, msg) {
+  if(!_sb())return;
   const dbUid = userMapReverse?.[uid];
   const dbAuthorId = userMapReverse?.[authorUid];
   if (!dbUid || !dbAuthorId) return;
@@ -302,17 +315,19 @@ async function syncComment(userMapReverse, uid, date, authorUid, msg) {
 }
 
 async function syncPendingExercise(userMapReverse, uid, name, unit) {
+  if(!_sb())return;
   const dbUid = userMapReverse?.[uid];
   if (!dbUid) return;
   try { await supabase.from("pending_exercises").insert({ user_id: dbUid, exercise_name: name, unit }); } catch (e) { console.error(e); }
 }
 
 async function syncApproveExercise(dbId, approved) {
-  if (!dbId) return;
+  if(!_sb()||!dbId) return;
   try { await supabase.from("pending_exercises").update({ status: approved ? "approved" : "rejected" }).eq("id", dbId); } catch (e) { console.error(e); }
 }
 
 async function syncPin(userMapReverse, uid, newPin) {
+  if(!_sb())return;
   const dbUid = userMapReverse?.[uid];
   if (!dbUid) return;
   try { await supabase.from("users").update({ pin: newPin }).eq("id", dbUid); } catch (e) { console.error(e); }
@@ -330,18 +345,20 @@ function gCD(d,u,w){return d?.[u]?.cheatDays?.[w]??null;}
 function sCD(d,u,w,i){ini(d,u);if(!d[u].cheatDays)d[u].cheatDays={};if(i===null)delete d[u].cheatDays[w];else d[u].cheatDays[w]=i;syncCheatDay(d._userMapReverse,u,w,i);return{...d};}
 function gFl(d){return d?._flags||{};}
 function aFl(d,u,k,m,msg,sev,ded){if(!d._flags)d._flags={};const key=u+"_"+k;if(!d._flags[key])d._flags[key]=[];d._flags[key].push({modId:m,msg,severity:sev||"medium",deduction:ded||0.4,ts:Date.now(),response:null,resolved:false,genuine:null});syncFlag(d._userMapReverse,u,k,m,msg,sev||"medium",ded||0.4);return{...d};}
-function rFl(d,u,k,i,r){const key=u+"_"+k;if(d._flags?.[key]?.[i])d._flags[key][i].response=r;return{...d};}
-function resFl(d,u,k,i,g){const key=u+"_"+k;if(d._flags?.[key]?.[i]){d._flags[key][i].resolved=true;d._flags[key][i].genuine=g;}return{...d};}
+function rFl(d,u,k,i,r){const key=u+"_"+k;if(d._flags?.[key]?.[i]){d._flags[key][i].response=r;syncFlagResponse(d._flags[key][i]._dbId,r);}return{...d};}
+function resFl(d,u,k,i,g){const key=u+"_"+k;if(d._flags?.[key]?.[i]){d._flags[key][i].resolved=true;d._flags[key][i].genuine=g;syncFlagResolve(d._flags[key][i]._dbId,g);}return{...d};}
 function gCom(d,u,k){return d?._comments?.[u+"_"+k]||[];}
 function aCom(d,u,k,a,m){if(!d._comments)d._comments={};const key=u+"_"+k;if(!d._comments[key])d._comments[key]=[];d._comments[key].push({authorId:a,msg:m,ts:Date.now()});syncComment(d._userMapReverse,u,k,a,m);return{...d};}
 function gPE(d){return d?._pendingExercises||[];}
 function aPE(d,u,n,un){if(!d._pendingExercises)d._pendingExercises=[];d._pendingExercises.push({uid:u,name:n,unit:un,status:"pending",ts:Date.now()});syncPendingExercise(d._userMapReverse,u,n,un);return{...d};}
-function appPE(d,i,ok){if(d._pendingExercises?.[i])d._pendingExercises[i].status=ok?"approved":"rejected";return{...d};}
+function appPE(d,i,ok){if(d._pendingExercises?.[i]){d._pendingExercises[i].status=ok?"approved":"rejected";syncApproveExercise(d._pendingExercises[i]._dbId,ok);}return{...d};}
 function gCE(d,u){return(d?._pendingExercises||[]).filter(e=>e.uid===u&&e.status==="approved").map(e=>e.name);}
 function gSP(d,u,w,e){return d?.[u]?.strengthProofs?.[w+"_"+e]||null;}
 function sSP(d,u,w,e,p){ini(d,u);if(!d[u].strengthProofs)d[u].strengthProofs={};d[u].strengthProofs[w+"_"+e]=p;return{...d};}
 function gPS(d,u,w,e){return d?._proofApprovals?.[u+"_"+w+"_"+e]||"pending";}
-function sPS(d,u,w,e,s){if(!d._proofApprovals)d._proofApprovals={};d._proofApprovals[u+"_"+w+"_"+e]=s;return{...d};}
+function sPS(d,u,w,e,s){if(!d._proofApprovals)d._proofApprovals={};d._proofApprovals[u+"_"+w+"_"+e]=s;
+  const dbUid=d._userMapReverse?.[u];if(dbUid){supabase.from("exercise_logs").update({proof_status:s}).eq("user_id",dbUid).eq("week_num",w).eq("exercise_name",e).then(()=>{}).catch(e=>console.error(e));}
+  return{...d};}
 
 // H2H challenges
 function gH2H(d){return d?._h2h||[];}
@@ -350,9 +367,10 @@ function accH2H(d,i,accept){if(d._h2h?.[i])d._h2h[i].accepted=accept;return{...d
 
 function calcP(entry,d,uid,data){
   const wo=isW(d),mx=wo?4:3;
-  if(!entry)return{pts:0,mx,isCheat:false};
   const wn=gWN(d),cd=gCD(data,uid,wn),diw=dB(START,d)%7;
   const isC=cd!==null&&cd===diw;
+  if(!entry&&!isC)return{pts:0,mx,isCheat:false};
+  if(!entry&&isC)return{pts:1,mx,isCheat:true};
   let pts=0;
   if(wo&&entry.workout&&entry.workout!=="N")pts+=1;
   if(isC){pts+=1;}else{if(entry.calTarget==="Y")pts+=.33;if(entry.ateClean==="Y")pts+=.33;if(entry.ateOnTime==="Y")pts+=.34;}
@@ -370,8 +388,8 @@ function calcStrk(d,u){
 function calcWk(data,uid,wi,upTo){
   const ws=new Date(START);ws.setDate(ws.getDate()+wi*7);
   const we=gWE(ws),ed=upTo?new Date(Math.min(we.getTime(),upTo.getTime())):we;
-  let tp=0,tm=0,woDone=0;const target=gWT(wi);
-  for(let i=0;i<7;i++){const d=new Date(ws);d.setDate(d.getDate()+i);if(d>ed||d>END||d<START)continue;const e=gE(data,uid,toK(d));const r=calcP(e,d,uid,data);tp+=r.pts;tm+=r.mx;if(e&&e.workout&&e.workout!=="N"&&isW(d))woDone++;}
+  let tp=0,tm=0,woDone=0;const target=4;
+  for(let i=0;i<7;i++){const d=new Date(ws);d.setDate(d.getDate()+i);if(d>ed||d>END||d<START)continue;const e=gE(data,uid,toK(d));const r=calcP(e,d,uid,data);tp+=r.pts;tm+=r.mx;if(e&&e.workout&&e.workout!=="R"&&e.workout!=="")woDone++;}
   let cb=0;if(woDone>=target)cb=3;else if(woDone>=target-1)cb=2;else if(woDone>=target-2)cb=1;
   const member=WARRIORS.find(m=>m.id===uid);
   const allEx=[...(member?.gender==="F"?GEX:BEX),...gCE(data,uid)];
@@ -440,8 +458,10 @@ function Login({onLogin}){
     const savedPins=JSON.parse(localStorage.getItem("tf_pins")||"{}");
     savedPins[sel]=newPin;
     localStorage.setItem("tf_pins",JSON.stringify(savedPins));
-    // Sync to Supabase
+    // Update cached DB pins + sync to Supabase
     const cachedData=ld();
+    if(cachedData._dbPins)cachedData._dbPins[sel]=newPin;
+    sv(cachedData);
     syncPin(cachedData._userMapReverse,sel,newPin);
     setIsFirstTime(false);setNewPin("");setConfirmPin("");
     const u=ALL.find(u=>u.id===sel);
@@ -453,9 +473,12 @@ function Login({onLogin}){
     const savedPins=JSON.parse(localStorage.getItem("tf_pins")||"{}");
     savedPins[sel]=newPin;
     localStorage.setItem("tf_pins",JSON.stringify(savedPins));
+    // Update cached DB pins too so login works immediately
     const cachedData=ld();
+    if(cachedData._dbPins)cachedData._dbPins[sel]=newPin;
+    sv(cachedData);
     syncPin(cachedData._userMapReverse,sel,newPin);
-    setChangingPin(false);setNewPin("");setErr("PIN changed!");
+    setChangingPin(false);setNewPin("");setConfirmPin("");setErr("PIN changed! ✓");
   }
   return(
     <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{background:"linear-gradient(135deg,#0A1628,#0D2137 50%,#0a0a1a)"}}>
@@ -545,9 +568,10 @@ function LogTab({user,data,setData,setTab}){
   const today=new Date();today.setHours(0,0,0,0);const[vd,setVd]=useState(today);const[popup,setPopup]=useState(null);const[flagPop,setFlagPop]=useState(null);const[showCal,setShowCal]=useState(false);
   const dk=toK(vd),wn=gWN(vd),wi=wn-1;
   const entry=gE(data,user.id,dk)||{workout:"",calTarget:"",ateClean:"",ateOnTime:"",sleep:"",steps:"",water:"",protein:"",carbs:"",fats:"",calories:"",photo:null,comment:""};
-  const wo=isW(vd),diw=dB(START,vd)%7,cd=gCD(data,user.id,wn),isC=cd!==null&&cd===diw;
+  const diw=dB(START,vd)%7,cd=gCD(data,user.id,wn),isC=cd!==null&&cd===diw;
   const hasD=entry.workout||entry.calTarget||entry.sleep||entry.steps;
-  const{pts,mx}=calcP(hasD?entry:null,vd,user.id,data);
+  const isCheatDay=cd!==null&&cd===diw;
+  const{pts,mx}=calcP((hasD||isCheatDay)?entry:null,vd,user.id,data);
   const streak=calcStrk(data,user.id),mem=WARRIORS.find(w=>w.id===user.id);
   const pct=mx>0?pts/mx:0,isT=toK(vd)===toK(today),wkS=calcWk(data,user.id,wi,today);
   const myFlags=(gFl(data)[user.id+"_"+dk]||[]);
@@ -572,17 +596,17 @@ function LogTab({user,data,setData,setTab}){
       </div>
       {showCal&&<CalView data={data} uid={user.id} onSelect={d=>setVd(d)} onClose={()=>setShowCal(false)}/>}
       <div className="flex gap-2 mb-3">
-        <div className={"flex-1 text-center py-1.5 rounded-lg text-xs font-bold "+(wo?"bg-emerald-500/20 text-emerald-400":"bg-orange-500/20 text-orange-400")}>{wo?"WORKOUT":"REST"} | Max {mx}pts</div>
+        <div className="flex-1 text-center py-1.5 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-400">Max {mx}pts | {wkS.workoutsDone}/4 workouts</div>
         <div className="px-3 py-1.5 rounded-lg bg-white/5 text-xs text-white/50">🔥{streak}d</div>
       </div>
       {cd===null?(<B onClick={()=>setData(sCD(data,user.id,wn,diw))} className="w-full mb-3 p-2 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-bold">🍕 Use Cheat Day - 1/week</B>):isC?(<B onClick={()=>setData(sCD(data,user.id,wn,null))} className="w-full mb-3 p-2 rounded-xl bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-xs font-bold text-center">🍕 CHEAT DAY - Nutrition auto 1pt (tap to undo)</B>):(<div className="w-full mb-3 p-2 rounded-xl bg-white/5 text-white/20 text-xs text-center">Cheat used this week</div>)}
       <div className="flex justify-center mb-4"><div className="w-24 h-24 rounded-full flex flex-col items-center justify-center border-4" style={{borderColor:pct>=.95?"#00D4FF":pct>=.7?"#27AE60":pct>0?"#F39C12":"#333",background:"rgba(255,255,255,.03)"}}><span className="text-2xl font-black text-white">{pts.toFixed(1)}</span><span className="text-xs text-white/30">/{mx}pts</span></div></div>
-      <B onClick={()=>setTab("strength")} className="w-full mb-3 p-2 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between"><span className="text-white/40 text-xs">💪 Multiplier {"("+wkS.targetsMet+"/5 targets = "+wkS.multiplier.toFixed(2)+"x)"}</span><span className="text-sm font-bold" style={{color:wkS.multiplier>1?"#00D4FF":"#555"}}>{wkS.multiplier.toFixed(2)}x →</span></B>
+      <B onClick={()=>setTab("strength")} className="w-full mb-3 p-2 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between"><span className="text-white/40 text-xs">💪 Multiplier {wkS.targetsMet+"/5 = "+wkS.multiplier.toFixed(2)+"x"}</span><span className="text-sm font-bold" style={{color:wkS.multiplier>1?"#00D4FF":"#555"}}>{wkS.multiplier.toFixed(2)}x →</span></B>
 
-      {wo&&<div className="bg-white/5 rounded-xl p-3 border border-white/10 mb-2"><label className="text-white/40 text-xs mb-1.5 block">WORKOUT</label><div className="grid grid-cols-5 gap-1.5">{[["G","Gym"],["C","Cardio"],["H","Home"],["S","Sports"],["N","Skip"]].map(([v,l])=>(<B key={v} onClick={()=>up("workout",tog(entry.workout,v))} className={"py-2 rounded-lg text-xs font-bold "+(entry.workout===v?(v==="N"?"bg-red-500/30 text-red-400 ring-1 ring-red-400":"bg-cyan-500/30 text-cyan-400 ring-1 ring-cyan-400"):"bg-white/5 text-white/30")}>{l}</B>))}</div></div>}
+      <div className="bg-white/5 rounded-xl p-3 border border-white/10 mb-2"><label className="text-white/40 text-xs mb-1.5 block">WORKOUT <span className="text-white/20">({wkS.workoutsDone}/4 this week)</span></label><div className="grid grid-cols-5 gap-1.5">{[["G","Gym"],["C","Cardio"],["H","Home"],["S","Sports"],["R","Rest"]].map(([v,l])=>(<B key={v} onClick={()=>{up("workout",tog(entry.workout,v));if(typeof navigator!=="undefined"&&navigator.vibrate)navigator.vibrate(30);}} className={"py-2 rounded-lg text-xs font-bold "+(entry.workout===v?(v==="R"?"bg-orange-500/30 text-orange-400 ring-1 ring-orange-400":"bg-cyan-500/30 text-cyan-400 ring-1 ring-cyan-400"):"bg-white/5 text-white/30")}>{l}</B>))}</div>{wkS.workoutsDone>=4&&entry.workout!==""&&entry.workout!=="R"&&<p className="text-yellow-400 text-xs mt-1">✓ 4/4 workouts done this week!</p>}</div>
 
       {isC?(<div className="bg-yellow-500/10 rounded-xl p-3 border border-yellow-500/20 mb-2"><p className="text-yellow-400 text-xs font-bold">🍕 Nutrition auto 1pt (cheat day)</p></div>):(<div className="bg-white/5 rounded-xl p-3 border border-white/10 mb-2"><label className="text-white/40 text-xs mb-1.5 block">NUTRITION (3 criteria = 1pt)</label>
-        {[{f:"calTarget",l:mem?.calGoal==="surplus"?"Cal Surplus":"Cal Deficit",p:".33"},{f:"ateClean",l:"Ate Clean",p:".33"},{f:"ateOnTime",l:"On Time",p:".34"}].map(c=>(<div key={c.f} className="flex items-center justify-between mb-1.5"><span className="text-white/60 text-xs">{c.l} <span className="text-white/20">({c.p})</span></span><div className="flex gap-1">{["Y","N"].map(v=>(<B key={v} onClick={()=>up(c.f,tog(entry[c.f],v))} className={"px-3 py-1 rounded text-xs font-bold "+(entry[c.f]===v?(v==="Y"?"bg-emerald-500/30 text-emerald-400":"bg-red-500/30 text-red-400"):"bg-white/5 text-white/20")}>{v}</B>))}</div></div>))}</div>)}
+        {[{f:"calTarget",l:mem?.calGoal==="surplus"?"Cal Surplus":"Cal Deficit",p:".33"},{f:"ateClean",l:"Ate Clean",p:".33"},{f:"ateOnTime",l:"On Time",p:".34"}].map(c=>(<div key={c.f} className="flex items-center justify-between mb-1.5"><span className="text-white/60 text-xs">{c.l} <span className="text-white/20">({c.p})</span></span><div className="flex gap-1">{["Y","N"].map(v=>(<B key={v} onClick={()=>{up(c.f,tog(entry[c.f],v));if(typeof navigator!=="undefined"&&navigator.vibrate)navigator.vibrate(20);}} className={"px-3 py-1 rounded text-xs font-bold "+(entry[c.f]===v?(v==="Y"?"bg-emerald-500/30 text-emerald-400":"bg-red-500/30 text-red-400"):"bg-white/5 text-white/20")}>{v}</B>))}</div></div>))}</div>)}
 
       <div className="bg-white/5 rounded-xl p-3 border border-white/10 mb-2"><label className="text-white/40 text-xs mb-1.5 block">SLEEP (hrs)</label><input type="number" step=".5" min="0" max="14" placeholder="7.5" value={entry.sleep} onChange={e=>up("sleep",e.target.value===""?"":parseFloat(e.target.value)||0)} className="w-full p-2.5 rounded-lg bg-white/10 text-white text-center border border-white/20 focus:border-cyan-400 focus:outline-none"/>{entry.sleep>0&&<p className="text-xs mt-1" style={{color:entry.sleep>=7?"#00D4FF":"#F39C12"}}>+{Math.min(entry.sleep/7,1).toFixed(2)}pt</p>}</div>
 
@@ -629,10 +653,15 @@ function StrTab({user,data,setData}){
     <div className="p-4 pb-24 max-w-lg mx-auto">
       <h2 className="text-lg font-black text-white mb-0.5">STRENGTH</h2>
       <p className="text-xs text-white/40 mb-3">Week {wn} | Min 5 targets for multiplier</p>
-      <div className="rounded-xl p-4 mb-3 text-center border" style={{background:stats.multiplier>1?"rgba(0,212,255,.1)":"rgba(255,255,255,.03)",borderColor:stats.multiplier>1?"rgba(0,212,255,.3)":"rgba(255,255,255,.1)"}}>
-        <p className="text-white/30 text-xs mb-1">MULTIPLIER</p>
-        <p className="text-4xl font-black" style={{color:stats.multiplier>1?"#00D4FF":"#444"}}>{stats.multiplier.toFixed(2)}x</p>
-        <p className="text-white/30 text-xs mt-1">{stats.targetsMet}/{stats.totalTargets} met {"("+stats.targetsMet+" met = "+stats.multiplier.toFixed(2)+"x, max 1.25x)"}</p>
+      <div className="rounded-xl p-4 mb-3 border" style={{background:stats.multiplier>1?"rgba(0,212,255,.1)":"rgba(255,255,255,.03)",borderColor:stats.multiplier>1?"rgba(0,212,255,.3)":"rgba(255,255,255,.1)"}}>
+        <div className="flex items-center justify-between mb-2">
+          <div><p className="text-white/30 text-xs">MULTIPLIER</p><p className="text-3xl font-black" style={{color:stats.multiplier>1?"#00D4FF":"#444"}}>{stats.multiplier.toFixed(2)}x</p></div>
+          <div className="text-right"><p className="text-white/30 text-xs">{stats.targetsMet} of 5</p>
+            <div className="flex gap-1 mt-1">{[0,1,2,3,4].map(i=>(<div key={i} className="w-5 h-5 rounded-full flex items-center justify-center text-[10px]" style={{background:i<stats.targetsMet?"#00D4FF":"rgba(255,255,255,.05)",color:i<stats.targetsMet?"#0A1628":"#333"}}>{i<stats.targetsMet?"✓":""}</div>))}</div>
+          </div>
+        </div>
+        <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden"><div className="h-full rounded-full" style={{width:Math.min(stats.targetsMet/5*100,100)+"%",background:"linear-gradient(90deg,#00D4FF,#FF4B2B)"}}/></div>
+        <p className="text-white/20 text-[10px] mt-1">Each met = +0.05x | Max 5 = 1.25x</p>
       </div>
       <B onClick={()=>setShowT(!showT)} className="w-full mb-3 p-2 rounded-xl bg-white/5 border border-white/10 text-white/50 text-xs">{showT?"Hide":"Set/Edit"} Targets</B>
       {showT&&<div className="mb-3 space-y-2">{exercises.map(ex=>(<div key={ex} className="bg-white/5 rounded-xl p-3 border border-white/10"><p className="text-white text-sm font-bold mb-2">{ex}</p><div className="grid grid-cols-3 gap-2">{["starting","weekly","monthly"].map(f=>(<div key={f}><label className="text-white/20 text-xs block mb-1 capitalize">{f}</label><input type="number" step="any" placeholder="0" value={targets?.[ex]?.[f]??""} onChange={e=>{const t={...targets};if(!t[ex])t[ex]={};t[ex][f]=e.target.value===""?"":parseFloat(e.target.value)||0;setData(sT(data,user.id,t));}} className="w-full p-1.5 rounded bg-white/10 text-white text-center text-xs border border-white/15 focus:border-cyan-400 focus:outline-none"/></div>))}</div></div>))}</div>}
@@ -671,6 +700,38 @@ function StatsTab({user,data,setData}){
     <div className="p-4 pb-24 max-w-lg mx-auto">
       <div className="flex gap-1 mb-3 overflow-x-auto">{WARRIORS.map(m=>(<B key={m.id} onClick={()=>setVu(m.id)} className={"px-2 py-1 rounded-lg text-xs font-bold whitespace-nowrap "+(vu===m.id?"bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-400":"bg-white/5 text-white/30")}>{m.alias}</B>))}</div>
       <h2 className="text-lg font-black text-white mb-3">{vm?.alias}</h2>
+
+      {/* Weekly comparison table */}
+      <div className="bg-white/5 rounded-xl p-3 border border-white/10 mb-3 overflow-x-auto">
+        <p className="text-white/40 text-xs mb-2">📊 WEEKLY COMPARISON (Week {gWN(today)})</p>
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-white/10">
+              <th className="text-left text-white/30 py-1 pr-2">Date</th>
+              {WARRIORS.map(w=>(<th key={w.id} className="text-center text-white/40 py-1 px-1" style={{minWidth:"55px"}}>{w.alias.slice(0,6)}</th>))}
+            </tr>
+          </thead>
+          <tbody>
+            {(()=>{const wi=gWI(today);const ws=new Date(START);ws.setDate(ws.getDate()+wi*7);const rows=[];
+              for(let i=0;i<7;i++){const d=new Date(ws);d.setDate(d.getDate()+i);if(d>today||d>END)continue;
+                const dk=toK(d);const dayName=DF[d.getDay()].slice(0,3);
+                rows.push(<tr key={dk} className="border-b border-white/5">
+                  <td className="text-white/30 py-1.5 pr-2 whitespace-nowrap">{dayName} {d.getDate()}</td>
+                  {WARRIORS.map(w=>{const e=gE(data,w.id,dk);const r=e?calcP(e,d,w.id,data):{pts:0,mx:4};
+                    return(<td key={w.id} className="text-center py-1.5 px-1">
+                      {e?(<div>
+                        <span className="font-bold" style={{color:r.pts>=r.mx*.9?"#00D4FF":r.pts>=r.mx*.7?"#27AE60":r.pts>0?"#F39C12":"#E74C3C"}}>{r.pts.toFixed(1)}</span>
+                        <div className="text-[9px] text-white/20">{e.sleep?e.sleep+"h":"-"} | {e.steps||"-"} | {e.water?e.water+"L":"-"}</div>
+                      </div>):(<span className="text-white/10">-</span>)}
+                    </td>);
+                  })}
+                </tr>);
+              }
+              return rows;
+            })()}
+          </tbody>
+        </table>
+      </div>
       <div className="bg-white/5 rounded-xl p-4 border border-white/10 text-center mb-3"><p className="text-white/30 text-xs mb-2">OVERALL</p><RB pct={oP} size="lg"/><p className="text-white/30 text-sm mt-2">{oP!==null?(oP*100).toFixed(1)+"%":"No data"}</p><p className="text-white/20 text-xs">{tP.toFixed(1)}/{tM}pts | 🔥{streak}d</p></div>
       {achs.length>0&&<div className="bg-white/5 rounded-xl p-3 border border-white/10 mb-3"><p className="text-white/40 text-xs mb-2">🏅 ACHIEVEMENTS</p><div className="flex flex-wrap gap-1">{achs.map(a=>(<span key={a.id} className="text-xs px-2 py-1 rounded-lg bg-yellow-500/10 text-yellow-400">{a.icon} {a.name}</span>))}</div></div>}
       <div className="bg-white/5 rounded-xl p-3 border border-white/10 mb-3"><p className="text-white/40 text-xs mb-2">STRENGTH BESTS</p><div className="space-y-1">{Object.entries(bests).map(([ex,b])=>(<div key={ex} className="flex justify-between items-center"><span className="text-white/50 text-xs">{ex}</span><div className="flex items-center gap-1"><span className="text-white font-bold text-xs">{b.best!==null?b.best:"--"}</span>{b.target&&<span className={"text-[10px] px-1 py-0.5 rounded "+(b.hit?"bg-emerald-500/20 text-emerald-400":"bg-red-500/20 text-red-400")}>{b.hit?"MET":"MISS"}</span>}</div></div>))}</div></div>
@@ -697,7 +758,7 @@ function ModView({user,data,setData}){
         <div className="grid grid-cols-3 gap-2 mb-3">{WARRIORS.map(w=>(<B key={w.id} onClick={()=>setSelW(w.id)} className={"p-2 rounded-lg text-xs font-bold "+(selW===w.id?"bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-400":"bg-white/5 text-white/30")}>{w.alias}</B>))}</div>
         {selW&&<div>
           <input type="date" value={selD} onChange={e=>setSelD(e.target.value)} className="w-full mb-3 p-2 rounded-lg bg-white/10 text-white text-sm border border-white/20 focus:outline-none"/>
-          {(()=>{const e=gE(data,selW,selD);if(!e)return(<p className="text-white/30 text-xs">No data</p>);const d=new Date(selD+"T00:00:00"),r=calcP(e,d,selW,data),w=WARRIORS.find(x=>x.id===selW);
+          {(()=>{const e=gE(data,selW,selD);if(!e)return(<p className="text-white/30 text-xs">No data</p>);const d=new Date(selD+"T12:00:00"),r=calcP(e,d,selW,data),w=WARRIORS.find(x=>x.id===selW);
             return(<div className="bg-white/5 rounded-xl p-3 border border-white/10 mb-3">
               <p className="text-white font-bold text-sm mb-2">{w?.alias} - {fm(d)}</p>
               <div className="grid grid-cols-2 gap-2 text-xs text-white/50 mb-2"><p>Workout: <span className="text-white">{e.workout||"--"}</span></p><p>Cal: <span className="text-white">{e.calTarget||"--"}</span></p><p>Clean: <span className="text-white">{e.ateClean||"--"}</span></p><p>OnTime: <span className="text-white">{e.ateOnTime||"--"}</span></p><p>Sleep: <span className="text-white">{e.sleep||"--"}h</span></p><p>Steps: <span className="text-white">{e.steps||"--"}</span></p><p>Water: <span className="text-white">{e.water||"--"}L</span></p><p>Pts: <span className="text-cyan-400 font-bold">{r.pts.toFixed(1)}/{r.mx}</span></p></div>
@@ -708,7 +769,7 @@ function ModView({user,data,setData}){
                 <p className="text-red-400 text-xs font-bold mb-1.5">FLAG ENTRY</p>
                 <div className="flex gap-1 mb-1.5">{[["low","Low","0.2","#F39C12"],["medium","Med","0.4","#E67E22"],["high","High","0.6","#E74C3C"],["critical","Crit","1.0","#C0392B"]].map(([s,l,d,c])=>(<B key={s} onClick={()=>{setFlagSev(s);setFlagDed(parseFloat(d));}} className={"flex-1 py-1.5 rounded text-xs font-bold "+(flagSev===s?"ring-1":"bg-white/5 text-white/30")} style={flagSev===s?{background:c+"30",color:c}:{}}>{l}<br/><span className="text-[9px] opacity-60">-{d}pt</span></B>))}</div>
                 <input placeholder="Reason..." value={flagMsg} onChange={e=>setFlagMsg(e.target.value)} className="w-full mb-1.5 p-2 rounded-lg bg-white/10 text-white text-xs border border-white/20 focus:outline-none"/>
-                <B onClick={()=>{if(flagMsg.trim()){setData(aFl(data,selW,selD,user.id,flagMsg.trim(),flagSev,flagDed));setFlagMsg("");setFlagPop({sev:flagSev,ded:flagDed,warrior:w?.alias});}}} className="w-full py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-bold">⚠️ Flag ({flagSev} | -{flagDed}pt)</B>
+                <B onClick={()=>{if(flagMsg.trim()){if(typeof navigator!=="undefined"&&navigator.vibrate)navigator.vibrate([100,50,100]);setData(aFl(data,selW,selD,user.id,flagMsg.trim(),flagSev,flagDed));setFlagMsg("");setFlagPop({sev:flagSev,ded:flagDed,warrior:w?.alias});}}} className="w-full py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-bold">⚠️ Flag ({flagSev} | -{flagDed}pt)</B>
               </div>
               <div className="flex gap-2 mb-2"><input placeholder="Comment..." value={comMsg} onChange={e=>setComMsg(e.target.value)} className="flex-1 p-2 rounded-lg bg-white/10 text-white text-xs border border-white/20 focus:outline-none"/><B onClick={()=>{if(comMsg.trim()){setData(aCom(data,selW,selD,user.id,comMsg.trim()));setComMsg("");}}} className="px-3 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-bold">💬</B></div>
               {/* Existing flags with resolve */}
@@ -850,9 +911,9 @@ export default function App(){
                   :tab==="admin"&&isAdm?<AdminPanel user={user} data={data} setData={setData}/>
          :<StatsTab user={user} data={data} setData={setData}/>}
       </div>
-      <div className="fixed bottom-0 left-0 right-0 z-50 flex" style={{background:"rgba(10,22,40,.98)",borderTop:"1px solid rgba(255,255,255,.08)",paddingBottom:"env(safe-area-inset-bottom)"}}>
-        {isMod?(<B onClick={()=>setTab("board")} className="flex-1 py-3 flex flex-col items-center gap-0.5" style={{color:"#F39C12"}}><span className="text-lg">🛡️</span><span className="text-xs font-bold">Mod</span></B>)
-         :tabs.map(t=>(<B key={t.id} onClick={()=>setTab(t.id)} className="flex-1 py-2.5 flex flex-col items-center gap-0.5" style={{color:tab===t.id?(t.id==="admin"?"#E74C3C":"#00D4FF"):"rgba(255,255,255,.25)"}}><span className="text-base">{t.i}</span><span className="text-[10px] font-bold">{t.l}</span></B>))}
+      <div className="fixed bottom-0 left-0 right-0 z-50 flex" style={{background:"rgba(10,22,40,.98)",borderTop:"1px solid rgba(255,255,255,.08)",paddingBottom:"max(env(safe-area-inset-bottom), 8px)",paddingTop:"4px"}}>
+        {isMod?(<B onClick={()=>setTab("board")} className="flex-1 py-4 flex flex-col items-center gap-1" style={{color:"#F39C12"}}><span className="text-2xl">🛡️</span><span className="text-xs font-bold">Mod Panel</span></B>)
+         :tabs.map(t=>(<B key={t.id} onClick={()=>{setTab(t.id);if(typeof navigator!=="undefined"&&navigator.vibrate)navigator.vibrate(15);}} className="flex-1 py-3 flex flex-col items-center gap-1" style={{color:tab===t.id?(t.id==="admin"?"#E74C3C":"#00D4FF"):"rgba(255,255,255,.25)"}}><span className="text-2xl">{t.i}</span><span className="text-xs font-bold">{t.l}</span></B>))}
       </div>
     </div>
   );
