@@ -368,11 +368,13 @@ function accH2H(d,i,accept){if(d._h2h?.[i])d._h2h[i].accepted=accept;return{...d
 function calcP(entry,d,uid,data){
   const wn=gWN(d),cd=gCD(data,uid,wn),diw=dB(START,d)%7;
   const isC=cd!==null&&cd===diw;
-  // Max 4pts always, unless user explicitly chose Rest (then 3)
+  // For entries with data: R or N = rest (mx=3), otherwise mx=4
+  // For null entries: use old schedule (isW) for backward compat
   const isRest=entry&&(entry.workout==="R"||entry.workout==="N");
-  const mx=isRest?3:4;
-  if(!entry&&!isC)return{pts:0,mx:4,isCheat:false};
-  if(!entry&&isC)return{pts:1,mx:4,isCheat:true};
+  const scheduleMx=isW(d)?4:3;
+  const mx=entry?(isRest?3:4):scheduleMx;
+  if(!entry&&!isC)return{pts:0,mx:scheduleMx,isCheat:false};
+  if(!entry&&isC)return{pts:1,mx:scheduleMx,isCheat:true};
   let pts=0;
   if(entry.workout&&entry.workout!=="R"&&entry.workout!=="N")pts+=1;
   if(isC){pts+=1;}else{if(entry.calTarget==="Y")pts+=.33;if(entry.ateClean==="Y")pts+=.33;if(entry.ateOnTime==="Y")pts+=.34;}
