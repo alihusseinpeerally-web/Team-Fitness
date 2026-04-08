@@ -869,12 +869,15 @@ export default function App(){
   const refreshRef=useRef(null);
   const setData=useCallback(nd=>{setDS(nd);sv(nd);},[]);
 
-  // Load data from Supabase on mount
+  // Load data from Supabase on mount - Supabase is source of truth
   useEffect(()=>{
     async function init(){
       try{
         const sbData=await loadFromSupabase();
-        if(Object.keys(sbData).length>2){setDS(sbData);sv(sbData);}
+        if(Object.keys(sbData).length>2){
+          // Supabase has data - use it as source of truth
+          setDS(sbData);sv(sbData);
+        }
       }catch(e){console.error(e);}
       setLoading(false);
     }
