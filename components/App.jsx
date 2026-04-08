@@ -51,7 +51,7 @@ const ACHIEVEMENTS = [
 ];
 
 function dB(a,b){return Math.round((b-a)/864e5);}
-function toK(d){return d.toISOString().split("T")[0];}
+function toK(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 const DF=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 function fm(d){return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();}
 function gWI(d){return Math.floor(dB(START,d)/7);}
@@ -366,13 +366,15 @@ function aH2H(d,from,to,wn){if(!d._h2h)d._h2h=[];d._h2h.push({from,to,weekNum:wn
 function accH2H(d,i,accept){if(d._h2h?.[i])d._h2h[i].accepted=accept;return{...d};}
 
 function calcP(entry,d,uid,data){
-  const wo=isW(d),mx=wo?4:3;
   const wn=gWN(d),cd=gCD(data,uid,wn),diw=dB(START,d)%7;
   const isC=cd!==null&&cd===diw;
-  if(!entry&&!isC)return{pts:0,mx,isCheat:false};
-  if(!entry&&isC)return{pts:1,mx,isCheat:true};
+  // Max 4pts always, unless user explicitly chose Rest (then 3)
+  const isRest=entry&&entry.workout==="R";
+  const mx=isRest?3:4;
+  if(!entry&&!isC)return{pts:0,mx:4,isCheat:false};
+  if(!entry&&isC)return{pts:1,mx:4,isCheat:true};
   let pts=0;
-  if(wo&&entry.workout&&entry.workout!=="N")pts+=1;
+  if(entry.workout&&entry.workout!=="R")pts+=1;
   if(isC){pts+=1;}else{if(entry.calTarget==="Y")pts+=.33;if(entry.ateClean==="Y")pts+=.33;if(entry.ateOnTime==="Y")pts+=.34;}
   if(entry.sleep>0)pts+=Math.min(entry.sleep/7,1);
   if(entry.steps>0)pts+=Math.min(entry.steps/10000,1);
@@ -596,7 +598,7 @@ function LogTab({user,data,setData,setTab}){
       </div>
       {showCal&&<CalView data={data} uid={user.id} onSelect={d=>setVd(d)} onClose={()=>setShowCal(false)}/>}
       <div className="flex gap-2 mb-3">
-        <div className="flex-1 text-center py-1.5 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-400">Max {mx}pts | {wkS.workoutsDone}/4 workouts</div>
+        <div className="flex-1 text-center py-1.5 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-400">{wkS.workoutsDone}/4 workouts this week</div>
         <div className="px-3 py-1.5 rounded-lg bg-white/5 text-xs text-white/50">🔥{streak}d</div>
       </div>
       {cd===null?(<B onClick={()=>setData(sCD(data,user.id,wn,diw))} className="w-full mb-3 p-2 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-bold">🍕 Use Cheat Day - 1/week</B>):isC?(<B onClick={()=>setData(sCD(data,user.id,wn,null))} className="w-full mb-3 p-2 rounded-xl bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-xs font-bold text-center">🍕 CHEAT DAY - Nutrition auto 1pt (tap to undo)</B>):(<div className="w-full mb-3 p-2 rounded-xl bg-white/5 text-white/20 text-xs text-center">Cheat used this week</div>)}
@@ -758,9 +760,9 @@ function ModView({user,data,setData}){
         <div className="grid grid-cols-3 gap-2 mb-3">{WARRIORS.map(w=>(<B key={w.id} onClick={()=>setSelW(w.id)} className={"p-2 rounded-lg text-xs font-bold "+(selW===w.id?"bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-400":"bg-white/5 text-white/30")}>{w.alias}</B>))}</div>
         {selW&&<div>
           <input type="date" value={selD} onChange={e=>setSelD(e.target.value)} className="w-full mb-3 p-2 rounded-lg bg-white/10 text-white text-sm border border-white/20 focus:outline-none"/>
-          {(()=>{const e=gE(data,selW,selD);if(!e)return(<p className="text-white/30 text-xs">No data</p>);const d=new Date(selD+"T12:00:00"),r=calcP(e,d,selW,data),w=WARRIORS.find(x=>x.id===selW);
+          {(()=>{const e=gE(data,selW,selD);if(!e)return(<p className="text-white/30 text-xs">No data</p>);const dateParts=selD.split("-"),dispDate=dateParts[2]+"/"+dateParts[1]+"/"+dateParts[0],d=new Date(selD+"T12:00:00"),r=calcP(e,d,selW,data),w=WARRIORS.find(x=>x.id===selW);
             return(<div className="bg-white/5 rounded-xl p-3 border border-white/10 mb-3">
-              <p className="text-white font-bold text-sm mb-2">{w?.alias} - {fm(d)}</p>
+              <p className="text-white font-bold text-sm mb-2">{w?.alias} - {dispDate}</p>
               <div className="grid grid-cols-2 gap-2 text-xs text-white/50 mb-2"><p>Workout: <span className="text-white">{e.workout||"--"}</span></p><p>Cal: <span className="text-white">{e.calTarget||"--"}</span></p><p>Clean: <span className="text-white">{e.ateClean||"--"}</span></p><p>OnTime: <span className="text-white">{e.ateOnTime||"--"}</span></p><p>Sleep: <span className="text-white">{e.sleep||"--"}h</span></p><p>Steps: <span className="text-white">{e.steps||"--"}</span></p><p>Water: <span className="text-white">{e.water||"--"}L</span></p><p>Pts: <span className="text-cyan-400 font-bold">{r.pts.toFixed(1)}/{r.mx}</span></p></div>
               {e.photo&&<div className="mb-2"><p className="text-white/30 text-xs mb-1">📸 Proof:</p><img src={e.photo} alt="proof" className="w-full rounded-lg max-h-48 object-cover"/></div>}
               {e.comment&&<p className="text-white/40 text-xs italic mb-2">"{e.comment}"</p>}
