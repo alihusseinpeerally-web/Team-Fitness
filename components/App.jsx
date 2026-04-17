@@ -530,7 +530,7 @@ function Board({data,user}){
   const today=new Date();today.setHours(0,0,0,0);const wi=gWI(today),wn=wi+1,ws=gWS(today);
   const[exp,setExp]=useState(null);
   const mvp=getMVP(data,wi);
-  const stats=WARRIORS.map(m=>{const s=calcWk(data,m.id,wi,today);return{...m,...s,streak:calcStrk(data,m.id),weight:gWt(data,m.id,wn),bests:getBests(data,m.id)};}).sort((a,b)=>(b.consistency||0)-(a.consistency||0));
+  const stats=WARRIORS.map(m=>{const s=calcWk(data,m.id,wi,today);return{...m,...s,streak:calcStrk(data,m.id),weight:gWt(data,m.id,wn),bests:getBests(data,m.id)};}).sort((a,b)=>b.weekTotal-a.weekTotal);
   const dk=toK(today);
 
   return(
@@ -683,14 +683,16 @@ function StrTab({user,data,setData}){
 
 function HistTab({data}){
   const today=new Date();today.setHours(0,0,0,0);const cwi=gWI(today);const weeks=[];
-  for(let wi=0;wi<=Math.min(cwi,51);wi++){const ws=new Date(START);ws.setDate(ws.getDate()+wi*7);const res=WARRIORS.map(m=>({...m,...calcWk(data,m.id,wi,wi<cwi?null:today)})).sort((a,b)=>(b.consistency||0)-(a.consistency||0));weeks.push({wn:wi+1,start:ws,end:gWE(ws),results:res,live:wi===cwi});}
+  for(let wi=0;wi<=Math.min(cwi,51);wi++){const ws=new Date(START);ws.setDate(ws.getDate()+wi*7);const res=WARRIORS.map(m=>({...m,...calcWk(data,m.id,wi,wi<cwi?null:today)})).sort((a,b)=>b.weekTotal-a.weekTotal);weeks.push({wn:wi+1,start:ws,end:gWE(ws),results:res,live:wi===cwi});}
   return(<div className="p-4 pb-24 max-w-lg mx-auto"><h2 className="text-lg font-black text-white mb-0.5">HALL OF FAME</h2><p className="text-xs text-white/30 mb-4">Weekly champions</p><div className="space-y-2">{weeks.reverse().map(w=>{const win=w.results[0],run=w.results[1];return(<div key={w.wn} className={"rounded-xl p-3 border "+(w.live?"border-cyan-500/30 bg-cyan-500/5":"border-white/10 bg-white/5")}><div className="flex justify-between items-center mb-2"><span className="text-white font-bold text-sm">Week {w.wn} {w.live&&<span className="text-cyan-400 text-xs">LIVE</span>}</span><span className="text-white/20 text-xs">{fm(w.start)}</span></div><div className="flex gap-2"><div className="flex-1 bg-white/5 rounded-lg p-2 text-center"><p className="text-yellow-400 text-xs font-bold">👑 WINNER</p><p className="text-white text-sm font-bold">{win?.alias||"--"}</p><RB pct={win?.consistency} size="sm"/></div><div className="flex-1 bg-white/5 rounded-lg p-2 text-center"><p className="text-white/30 text-xs font-bold">🥈 RUNNER-UP</p><p className="text-white text-sm font-bold">{run?.alias||"--"}</p><RB pct={run?.consistency} size="sm"/></div></div></div>);})}</div></div>);
 }
 
 
 
 function StatsTab({user,data,setData}){
-  const today=new Date();today.setHours(0,0,0,0);const cwn=gWN(today);const[wi,setWi]=useState("");const[vu,setVu]=useState(user.id);
+  const today=new Date();today.setHours(0,0,0,0);const cwn=gWN(today);const cwi=gWI(today);
+  const[wi,setWi]=useState("");const[vu,setVu]=useState(user.id);
+  const[compWi,setCompWi]=useState(cwi);
   const streak=calcStrk(data,vu),vm=WARRIORS.find(m=>m.id===vu);
   const mN=["Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar"];const months=[];
   for(let mo=0;mo<12;mo++){const yr=mo<9?2026:2027,mn=(3+mo)%12+1;const fd=new Date(yr,mn-1,1),ld=new Date(yr,mn,0);let tp=0,tm=0;for(let d=new Date(fd);d<=ld&&d<=END&&d>=START;d.setDate(d.getDate()+1)){if(d>today)break;const r=calcP(gE(data,vu,toK(d)),d,vu,data);tp+=r.pts;tm+=r.mx;}months.push({name:mN[mo],pct:tm>0?tp/tm:null});}
@@ -705,9 +707,13 @@ function StatsTab({user,data,setData}){
       <div className="flex gap-1 mb-3 overflow-x-auto">{WARRIORS.map(m=>(<B key={m.id} onClick={()=>setVu(m.id)} className={"px-2 py-1 rounded-lg text-xs font-bold whitespace-nowrap "+(vu===m.id?"bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-400":"bg-white/5 text-white/30")}>{m.alias}</B>))}</div>
       <h2 className="text-lg font-black text-white mb-3">{vm?.alias}</h2>
 
-      {/* Weekly comparison table */}
+      {/* Weekly comparison table with nav */}
       <div className="bg-white/5 rounded-xl p-3 border border-white/10 mb-3 overflow-x-auto">
-        <p className="text-white/40 text-xs mb-2">📊 WEEKLY COMPARISON (Week {gWN(today)})</p>
+        <div className="flex items-center justify-between mb-2">
+          <B onClick={()=>setCompWi(Math.max(0,compWi-1))} className="px-2 py-0.5 rounded bg-white/5 text-white/60 text-xs" style={{opacity:compWi===0?0.3:1}}>← Prev</B>
+          <p className="text-white/60 text-xs font-bold">📊 WEEK {compWi+1} {compWi===cwi&&<span className="text-cyan-400">(LIVE)</span>}</p>
+          <B onClick={()=>setCompWi(Math.min(cwi,compWi+1))} className="px-2 py-0.5 rounded bg-white/5 text-white/60 text-xs" style={{opacity:compWi===cwi?0.3:1}}>Next →</B>
+        </div>
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-white/10">
@@ -716,7 +722,7 @@ function StatsTab({user,data,setData}){
             </tr>
           </thead>
           <tbody>
-            {(()=>{const wi=gWI(today);const ws=new Date(START);ws.setDate(ws.getDate()+wi*7);const rows=[];
+            {(()=>{const ws=new Date(START);ws.setDate(ws.getDate()+compWi*7);const rows=[];
               for(let i=0;i<7;i++){const d=new Date(ws);d.setDate(d.getDate()+i);if(d>today||d>END)continue;
                 const dk=toK(d);const dayName=DF[d.getDay()].slice(0,3);
                 rows.push(<tr key={dk} className="border-b border-white/5">
@@ -746,7 +752,7 @@ function StatsTab({user,data,setData}){
 }
 
 function ModView({user,data,setData}){
-  const today=new Date();today.setHours(0,0,0,0);const localDate=today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,"0")+"-"+String(today.getDate()).padStart(2,"0");const[selW,setSelW]=useState(null);const[selD,setSelD]=useState(localDate);
+  const today=new Date();today.setHours(0,0,0,0);const localDate=today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,"0")+"-"+String(today.getDate()).padStart(2,"0");const[selW,setSelW]=useState(null);const[selD,setSelD]=useState(localDate);const[modCompWi,setModCompWi]=useState(gWI(today));
   const[flagMsg,setFlagMsg]=useState("");const[comMsg,setComMsg]=useState("");const[flagSev,setFlagSev]=useState("medium");const[flagDed,setFlagDed]=useState(0.4);
   const[modTab,setModTab]=useState("overview");const[flagPop,setFlagPop]=useState(null);
   const pending=gPE(data),pendC=pending.filter(p=>p.status==="pending").length;
@@ -756,7 +762,43 @@ function ModView({user,data,setData}){
       <h2 className="text-lg font-black text-white mb-0.5">🛡️ MOD PANEL</h2><p className="text-xs text-orange-400 mb-3">{user.alias}</p>
       <div className="flex gap-1.5 mb-4">{[["overview","Overview"],["review","Review"],["proofs","Proofs"],["exercises","Exercises"]].map(([t,l])=>(<B key={t} onClick={()=>setModTab(t)} className={"flex-1 py-2 rounded-lg text-xs font-bold relative "+(modTab===t?"bg-orange-500/20 text-orange-400 ring-1 ring-orange-400":"bg-white/5 text-white/30")}>{l}{t==="exercises"&&pendC>0&&<span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">{pendC}</span>}{t==="proofs"&&proofC>0&&<span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-orange-500 text-white text-[10px] flex items-center justify-center">{proofC}</span>}</B>))}</div>
 
-      {modTab==="overview"&&<div><Board data={data} user={user}/>{(pendC>0||proofC>0)&&<div className="mt-2 bg-orange-500/10 rounded-xl p-2 border border-orange-500/20"><p className="text-orange-400 text-xs font-bold">{pendC>0?pendC+" exercise request(s) ":""}{proofC>0?proofC+" proof(s) pending":""}</p></div>}</div>}
+      {modTab==="overview"&&<div><Board data={data} user={user}/>{(pendC>0||proofC>0)&&<div className="mt-2 bg-orange-500/10 rounded-xl p-2 border border-orange-500/20"><p className="text-orange-400 text-xs font-bold">{pendC>0?pendC+" exercise request(s) ":""}{proofC>0?proofC+" proof(s) pending":""}</p></div>}
+        {/* Weekly comparison table for mods */}
+        <div className="mt-3 bg-white/5 rounded-xl p-3 border border-white/10 overflow-x-auto">
+          <div className="flex items-center justify-between mb-2">
+            <B onClick={()=>setModCompWi(Math.max(0,modCompWi-1))} className="px-2 py-0.5 rounded bg-white/5 text-white/60 text-xs" style={{opacity:modCompWi===0?0.3:1}}>← Prev</B>
+            <p className="text-orange-400 text-xs font-bold">📊 WEEK {modCompWi+1} {modCompWi===gWI(today)&&<span className="text-cyan-400">(LIVE)</span>}</p>
+            <B onClick={()=>setModCompWi(Math.min(gWI(today),modCompWi+1))} className="px-2 py-0.5 rounded bg-white/5 text-white/60 text-xs" style={{opacity:modCompWi===gWI(today)?0.3:1}}>Next →</B>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="text-left text-white/30 py-1 pr-2">Date</th>
+                {WARRIORS.map(w=>(<th key={w.id} className="text-center text-white/40 py-1 px-1" style={{minWidth:"55px"}}>{w.alias.slice(0,6)}</th>))}
+              </tr>
+            </thead>
+            <tbody>
+              {(()=>{const ws=new Date(START);ws.setDate(ws.getDate()+modCompWi*7);const rows=[];
+                for(let i=0;i<7;i++){const d=new Date(ws);d.setDate(d.getDate()+i);if(d>today||d>END)continue;
+                  const dk=toK(d);const dayName=DF[d.getDay()].slice(0,3);
+                  rows.push(<tr key={dk} className="border-b border-white/5">
+                    <td className="text-white/30 py-1.5 pr-2 whitespace-nowrap">{dayName} {d.getDate()}</td>
+                    {WARRIORS.map(w=>{const e=gE(data,w.id,dk);const r=e?calcP(e,d,w.id,data):{pts:0,mx:4};
+                      return(<td key={w.id} className="text-center py-1.5 px-1">
+                        {e?(<div>
+                          <span className="font-bold" style={{color:r.pts>=r.mx*.9?"#00D4FF":r.pts>=r.mx*.7?"#27AE60":r.pts>0?"#F39C12":"#E74C3C"}}>{r.pts.toFixed(1)}</span>
+                          <div className="text-[9px] text-white/20">{e.sleep?e.sleep+"h":"-"} | {e.steps||"-"} | {e.water?e.water+"L":"-"}</div>
+                        </div>):(<span className="text-white/10">-</span>)}
+                      </td>);
+                    })}
+                  </tr>);
+                }
+                return rows;
+              })()}
+            </tbody>
+          </table>
+        </div>
+      </div>}
 
       {modTab==="review"&&<div>
         <div className="grid grid-cols-3 gap-2 mb-3">{WARRIORS.map(w=>(<B key={w.id} onClick={()=>setSelW(w.id)} className={"p-2 rounded-lg text-xs font-bold "+(selW===w.id?"bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-400":"bg-white/5 text-white/30")}>{w.alias}</B>))}</div>
@@ -887,17 +929,21 @@ export default function App(){
     const s=localStorage.getItem("tf4_user");if(s){const m=ALL.find(u=>u.id===s);if(m)setUser(m);}
   },[]);
 
-  // Refresh from Supabase every 30 seconds to pick up other users changes
+  // Refresh from Supabase every 60 seconds - ONLY when user is not actively editing
   useEffect(()=>{
     if(!user)return;
     refreshRef.current=setInterval(async()=>{
       try{
+        // Skip refresh if user is on Log tab (actively editing) or has focused input
+        if(tab==="log")return;
+        const activeEl=document.activeElement;
+        if(activeEl&&(activeEl.tagName==="INPUT"||activeEl.tagName==="TEXTAREA"))return;
         const sbData=await loadFromSupabase();
         if(Object.keys(sbData).length>2){setDS(sbData);sv(sbData);}
       }catch(e){}
-    },30000);
+    },60000);
     return()=>clearInterval(refreshRef.current);
-  },[user]);
+  },[user,tab]);
   if(loading)return(<div className="min-h-screen flex items-center justify-center" style={{background:"linear-gradient(135deg,#0A1628,#0D2137)"}}><div className="text-center"><div className="text-5xl mb-4" style={{animation:"pulse 1.5s infinite"}}>💪</div><p className="text-white/60 text-sm">Loading Team Fitness...</p></div></div>);
   if(!user)return(<Login onLogin={m=>{setUser(m);localStorage.setItem("tf4_user",m.id);}}/>);
   const isMod=user.role==="moderator",isAdm=user.role==="admin";
